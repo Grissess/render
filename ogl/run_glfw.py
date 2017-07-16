@@ -1,4 +1,4 @@
-import sys, os
+import sys, os, ctypes
 sys.path.append(os.path.normpath(os.path.join(os.getcwd(), '..')))
 
 import glfw
@@ -75,6 +75,35 @@ glEnableVertexAttribArray(vPosition)
 glVertexAttribPointer(vPosition, 2, GL_FLOAT, GL_FALSE, 0, None)
 uSpectrum = glGetUniformLocation(prog, "uSpectrum")
 uWinSize = glGetUniformLocation(prog, "uWinSize")
+
+num_u = glGetProgramiv(prog, GL_ACTIVE_UNIFORMS)
+print('Uniforms:', num_u)
+for i in range(num_u):
+    print(i, ':', glGetActiveUniform(prog, i))
+
+ar = arrays.GLuintArray.zeros(1)
+param = (arrays.GLcharArray * 1)(b'uHueExp')
+param = ctypes.cast(param, ctypes.POINTER(ctypes.POINTER(ctypes.c_char)))
+print(glGetUniformIndices(prog, 1, param, ar))
+print(ar)
+
+num_a = glGetProgramiv(prog, GL_ACTIVE_ATTRIBUTES)
+print('Attributes:', num_a)
+olen = constants.GLsizei(0)
+osize = constants.GLint(0)
+otype = constants.GLenum(0)
+namebuf = ctypes.create_string_buffer(64)
+print(len(namebuf))
+for i in range(num_a):
+    print(i, ':', glGetActiveAttrib(prog, i, 64,
+        ctypes.pointer(olen), ctypes.pointer(osize),
+        ctypes.pointer(otype), namebuf,
+    ))
+    print(olen, olen.value, osize, otype, namebuf.value)
+
+print(glGetInteger(GL_MAX_VERTEX_ATTRIBS))
+
+#exit()
 
 while not glfw.window_should_close(win):
 

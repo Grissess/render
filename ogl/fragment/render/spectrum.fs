@@ -6,7 +6,9 @@
 
 layout (location = 0) out vec4 FragColor;
 
-uniform float uSpectrum[SAMPLES];
+uniform ubSpectrum {
+	uniform float uSpectrum[SAMPLES];
+};
 
 uniform vec2 uWinSize;
 
