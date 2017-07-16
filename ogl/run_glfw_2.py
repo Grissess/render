@@ -14,12 +14,8 @@ data = procon.get('fft')
 SAMPLES = int(len(data) / 4)
 data_type = ctypes.c_float * SAMPLES
 data_ptr = data_type.from_buffer(data)
-shader_defines = '#define SAMPLES {}\n'.format(SAMPLES)
 
-def format_shader_source(t):
-    return t.replace('@SHADER_DEFINES@', shader_defines)
-
-glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 3)
+glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 4)
 glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 3)
 glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
 win = glfw.create_window(640, 480, "Test 2", None, None)
@@ -42,22 +38,14 @@ spectrum = Buffer().set(data_ptr)
 
 prog = Program().attach(
     Shader(GL_VERTEX_SHADER).source(
-        format_shader_source(
-            open('vertex/trivial.vs').read(),
-        ),
+        open('vertex/trivial.vs').read(),
     ).compile(),
     Shader(GL_FRAGMENT_SHADER).source(
-        format_shader_source(
-            open('fragment/render/spectrum.fs').read(),
-        ),
+        open('fragment/render/spectrum.fs').read(),
     ).compile(),
 ).link()
 
-prog.uniform_blocks.ubSpectrum.bind(spectrum)
-
-print(list(prog.attributes))
-print(SAMPLES)
-print(prog.uniform_blocks.ubSpectrum.size)
+prog.storage_blocks[1].bind(spectrum)
 
 vao = VertexArrayObject()
 vao[prog.attributes.vPosition].bind(quad)
@@ -73,7 +61,6 @@ while not glfw.window_should_close(win):
 
     prog.use()
     prog.uniforms.uWinSize.set(*winsz, type='f')
-    #prog.uniforms.uSpectrum.set(np.frombuffer(data, dtype=np.float32))
     spectrum.update(data_ptr)
     vao.draw(GL_TRIANGLE_FAN)
 

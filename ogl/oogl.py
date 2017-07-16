@@ -147,7 +147,6 @@ class Buffer(_GLManagedObject):
 
     def update(self, data, offset=0, size=None):
         self.bind(GL_ARRAY_BUFFER)
-        print(data, self.size, size)
         if size is None:
             glBufferSubData(GL_ARRAY_BUFFER, offset, data)
         else:
@@ -210,6 +209,10 @@ class Program(object):
     @property
     def uniform_blocks(self):
         return ProgramUniformBlocks(self)
+
+    @property
+    def storage_blocks(self):
+        return ProgramShaderStorageBlocks(self)
 
     @property
     def attributes(self):
@@ -367,6 +370,32 @@ class ProgramUniformBlock(object):
         return glGetActiveUniformBlockiv(self.prog.obj, self.idx,
             GL_UNIFORM_BLOCK_REFERENCED_BY_FRAGMENT_SHADER,
         )
+
+class ProgramShaderStorageBlocks(object):
+    def __init__(self, prog):
+        self.prog = prog
+
+    def __getitem__(self, i):
+        return ProgramShaderStorageBlock(self.prog, i)
+
+class ProgramShaderStorageBlock(object):
+    def __init__(self, prog, idx):
+        self.prog = prog
+        self.idx = idx
+
+    def __repr__(self):
+        return '<Shader storage block {} of {}>'.format(
+            self.idx, self.prog,
+        )
+
+    def bind(self, buf, offset=0, size=None):
+        if isinstance(buf, int):
+            buf = Buffer(buf)
+
+        if size is None:
+            size = buf.size - offset
+
+        glBindBufferRange(GL_SHADER_STORAGE_BUFFER, self.idx, buf.obj, offset, size)
 
 class ProgramAttributes(object):
     def __init__(self, prog):

@@ -1,13 +1,11 @@
-#version 330
-
-@SHADER_DEFINES@
+#version 430
 
 //varying vec2 vUV;
 
 layout (location = 0) out vec4 FragColor;
 
-uniform ubSpectrum {
-	uniform float uSpectrum[SAMPLES];
+layout (std430, binding = 1) buffer sbSpectrum {
+	float bSpectrum[];
 };
 
 uniform vec2 uWinSize;
@@ -39,11 +37,11 @@ vec3 hsv2rgb(vec3 c)
 
 void main(void) {
 	vec2 zoc = gl_FragCoord.xy / uWinSize;
-	int sampidx = clamp(int(trunc(unmap_x(mix(uLowEnd, uHighEnd, zoc.x)) * SAMPLES)), 0, SAMPLES - 1);
-	float samp = uSpectrum[sampidx];
+	int sampidx = clamp(int(trunc(unmap_x(mix(uLowEnd, uHighEnd, zoc.x)) * bSpectrum.length())), 0, bSpectrum.length() - 1);
+	float samp = bSpectrum[sampidx];
 	samp = clamp(log(samp)/log(10), uMinClip, uMaxClip);
 	float crity = pow(clamp((samp / uRange) - uTopVal + 1.0, 0.0, 1.0), uYExp);
 	FragColor = zoc.y > crity ? vec4(0.0, 0.0, 0.0, 0.0) : vec4(hsv2rgb(map_col(zoc.x, crity)), 1.0);
 	//FragColor = vec4(zoc, 0.0, 1.0);
-	//FragColor = vec4(sampidx / float(SAMPLES), 0.0, 0.0, 1.0);
+	//FragColor = vec4(sampidx / float(bSpectrum.length() 0.0, 0.0, 1.0);
 }
