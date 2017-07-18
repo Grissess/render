@@ -1,7 +1,5 @@
 #version 330
 
-//varying vec2 vUV;
-
 layout (location = 0) out vec4 FragColor;
 
 void main(void) {

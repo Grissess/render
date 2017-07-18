@@ -93,6 +93,20 @@ class Context(object):
     def clear_color(cls, r=0.0, g=0.0, b=0.0, a=1.0):
         glClearColor(r, g, b, a)
 
+    @classmethod
+    def enable(cls, *feats):
+        for feat in feats:
+            glEnable(feat)
+
+    @classmethod
+    def disable(cls, *feats):
+        for feat in feats:
+            glDisable(feat)
+
+    @classmethod
+    def blend_func(cls, src_func, dst_func):
+        glBlendFunc(src_func, dst_func)
+
 class _GLManagedObject(object):
     gl_ctor = None
     gl_dtor = None
@@ -537,12 +551,90 @@ class VertexArrayBinding(object):
         return glGetVertexAttribiv(self.attr.location, GL_VERTEX_ATTRIB_ARRAY_STRIDE)[0]
 
     @property
+    def type(self):
+        self.vao.bind()
+        return glGetVertexAttribiv(self.attr.location, GL_VERTEX_ATTRIB_ARRAY_TYPE)[0]
+
+    @property
+    def type_size(self):
+        return C_SIZE.get(self.type, 1)
+
+    @property
     def actual_stride(self):
         stride = self.stride
         if stride == 0:
-            return self.size
+            return self.size * self.type_size
 
     @property
     def offset(self):
         self.vao.bind()
         return glGetVertexAttribPointerv(self.attr.location, GL_VERTEX_ATTRIB_ARRAY_POINTER)
+
+class Texture(object):
+    def __init__(self, unit=0, target=GL_TEXTURE_2D):
+        self.unit = unit
+        self.target = target
+        self.obj = glGenTextures(1)
+
+    def free(self):
+        glDeleteTextures(1, [obj])
+
+    def bind(self):
+        glBindTexture(self.target, self.obj)
+
+    def activate(self, unit=None):
+        if unit is None:
+            unit = self.unit
+        glActiveTexture(GL_TEXTURE0 + unit)
+        self.bind()
+
+    @property
+    def min_filter(self):
+        self.bind()
+        return glGetTexParameteriv(self.target, GL_TEXTURE_MIN_FILTER)
+
+    @min_filter.setter
+    def _set_min_filter(self, v):
+        self.bind()
+        glTexParameter(self.target, GL_TEXTURE_MIN_FILTER, v)
+
+    @property
+    def mag_filter(self):
+        self.bind()
+        return glGetTexParameteriv(self.target, GL_TEXTURE_MAG_FILTER)
+
+    @mag_filter.setter
+    def _set_mag_filter(self, v):
+        self.bind()
+        glTexParameter(self.target, GL_TEXTURE_MAG_FILTER, v)
+
+    @property
+    def wrap_s(self):
+        self.bind()
+        return glGetTexParameteriv(self.target, GL_TEXTURE_WRAP_S)
+
+    @wrap_s.setter
+    def _set_wrap_s(self, v):
+        self.bind()
+        glTexParameter(self.target, GL_TEXTURE_WRAP_S, v)
+
+    @property
+    def wrap_t(self):
+        self.bind()
+        return glGetTexParameteriv(self.target, GL_TEXTURE_WRAP_T)
+
+    @wrap_t.setter
+    def _set_wrap_t(self, v):
+        self.bind()
+        glTexParameter(self.target, GL_TEXTURE_WRAP_T, v)
+
+    @property
+    def wrap_r(self):
+        self.bind()
+        return glGetTexParameteriv(self.target, GL_TEXTURE_WRAP_R)
+
+    @wrap_r.setter
+    def _set_wrap_r(self, v):
+        self.bind()
+        glTexParameter(self.target, GL_TEXTURE_WRAP_R, v)
+
