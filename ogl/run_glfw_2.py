@@ -1,4 +1,4 @@
-import sys, os, ctypes, colorsys
+import sys, os, ctypes, colorsys, time
 sys.path.append(os.path.normpath(os.path.join(os.getcwd(), '..')))
 
 import glfw
@@ -10,6 +10,14 @@ from oogl import *
 
 if not glfw.init():
     exit()
+
+base_time = time.time()
+
+def real_time():
+    return time.time() - base_time
+
+def scaled_time(f):
+    return f * real_time()
 
 data = procon.get('fft')
 sig = procon.get('win')
@@ -94,6 +102,15 @@ prog_img = Program().attach(
     ).compile(),
 ).link()
 
+prog_pproc = Program().attach(
+    Shader(GL_VERTEX_SHADER).source(
+        open('vertex/trivial.vs').read(),
+    ).compile(),
+    Shader(GL_FRAGMENT_SHADER).source(
+        open('fragment/postproc/wavy.fs').read(),
+    ).compile(),
+).link()
+
 tex_img = Texture().load_surface(
     pygame.image.load('/home/grissess/Documents/trollface.png'),
 )
@@ -128,47 +145,86 @@ IMG_DIVISIONS = 8
 IMG_MIN_F = 0.003
 IMG_MAX_F = 0.7
 
+prog_pproc.use()
+vao_pproc = VertexArrayObject()
+vao_pproc[prog_pproc.attributes.vPosition].bind(quad)
+vao_pproc[prog_pproc.attributes.vTexCoord].bind(uvs)
+
+last_size = None
+fb = Framebuffer()
+fb_tex = Texture()
+fb_tex.wrap_s = GL_REPEAT
+fb_tex.wrap_t = GL_REPEAT
+fb_tex.min_filter = GL_NEAREST
+fb_tex.mag_filter = GL_NEAREST
+fb_ds = Renderbuffer()
+
 while not glfw.window_should_close(win):
     glfw.make_context_current(win)
 
     winsz = glfw.get_window_size(win)
     Context.viewport(0, 0, *winsz)
 
+    if last_size != winsz:
+        print('Resizing FB to', winsz)
+
+        fb_tex.image_2d(None, *winsz)
+        fb_ds.storage(GL_DEPTH24_STENCIL8, *winsz)
+
+        fb.attachments.colors[0].attach(fb_tex)
+        fb.attachments.depth_stencil.attach(fb_ds)
+
+        if fb.status != GL_FRAMEBUFFER_COMPLETE:
+            raise RuntimeError(fb.status)
+
+        last_size = winsz
+
     Context.clear_color()
+
+    with fb:
+        Context.clear()
+
+        Context.blend_func(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+        Context.enable(GL_BLEND)
+
+        spectrum.update(data_ptr)
+        signal.update(sig_ptr)
+
+        prog_bkgd.use()
+        vao_bkgd.draw(GL_TRIANGLES)
+
+        prog_img.use()
+        prog_img.uniforms.uTex.set(tex_img)
+        for i in range(IMG_DIVISIONS):
+            prog_img.uniforms.uColor.set(
+                list(
+                    colorsys.hls_to_rgb(
+                        0.66 * i, 0.5, 1,
+                    ),
+                ) + [0.2],
+            )
+            prog_img.uniforms.uSampF.set(
+                IMG_MIN_F + (i / IMG_DIVISIONS) * (IMG_MAX_F - IMG_MIN_F),
+            )
+            vao_img.draw(GL_TRIANGLES)
+
+        glEnable(GL_MULTISAMPLE)
+        prog_scope.use()
+        vao_scope.draw(GL_LINE_STRIP)
+        glDisable(GL_MULTISAMPLE)
+
+        prog.use()
+        #prog.uniforms.uWinSize.set(*winsz, type='f')
+        vao.draw(GL_TRIANGLES)
+
     Context.clear()
 
-    Context.blend_func(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-    Context.enable(GL_BLEND)
-
-    spectrum.update(data_ptr)
-    signal.update(sig_ptr)
-
-    #prog_bkgd.use()
-    #vao_bkgd.draw(GL_TRIANGLES)
-
-    prog_img.use()
-    prog_img.uniforms.uTex.set(tex_img)
-    for i in range(IMG_DIVISIONS):
-        prog_img.uniforms.uColor.set(
-            list(
-                colorsys.hls_to_rgb(
-                    0.66 * i, 0.5, 1,
-                ),
-            ) + [0.2],
-        )
-        prog_img.uniforms.uSampF.set(
-            IMG_MIN_F + (i / IMG_DIVISIONS) * (IMG_MAX_F - IMG_MIN_F),
-        )
-        vao_img.draw(GL_TRIANGLES)
-
-    glEnable(GL_MULTISAMPLE)
-    prog_scope.use()
-    vao_scope.draw(GL_LINE_STRIP)
-    glDisable(GL_MULTISAMPLE)
-
-    prog.use()
-    #prog.uniforms.uWinSize.set(*winsz, type='f')
-    vao.draw(GL_TRIANGLES)
+    prog_pproc.use()
+    prog_pproc.uniforms.uColor.set([1.0, 1.0, 1.0, 1.0])
+    prog_pproc.uniforms.uFB.set(fb_tex)
+    prog_pproc.uniforms.uPhaseOff.set(scaled_time(1.0))
+    prog_pproc.uniforms.uAngle.set(scaled_time(8.0))
+    vao_pproc.draw(GL_TRIANGLES)
 
     glfw.swap_buffers(win)
 

@@ -123,6 +123,34 @@ class Context(object):
     def shader_storage(cls):
         return ShaderStorageBindings.instance
 
+    @classproperty
+    def draw_framebuffer(cls):
+        return Framebuffer(glGetInteger(GL_DRAW_FRAMEBUFFER_BINDING))
+
+    @classproperty
+    def read_framebuffer(cls):
+        return Framebuffer(glGetInteger(GL_READ_FRAMEBUFFER_BINDING))
+
+    @classproperty
+    def texture_units(cls):
+        return TextureUnits.instance
+
+    @classproperty
+    def texture_unit(cls):
+        return TextureUnit(glGetInteger(GL_ACTIVE_TEXTURE))
+
+    @classproperty
+    def array_buffer(cls):
+        return Buffer(glGetInteger(GL_ARRAY_BUFFER_BINDING))
+
+    @classproperty
+    def element_array_buffer(cls):
+        return Buffer(glGetInteger(GL_ELEMENT_ARRAY_BUFFER_BINDING))
+
+    @classproperty
+    def max_color_attachments(cls):
+        return glGetInteger(GL_MAX_COLOR_ATTACHMENTS)
+
 class ShaderStorageBindings(object):
     def __getitem__(self, i):
         return ShaderStorageBinding(i)
@@ -144,6 +172,75 @@ class ShaderStorageBinding(object):
             size = buf.size - offset
 
         glBindBufferRange(GL_SHADER_STORAGE_BUFFER, self.idx, buf.obj, offset, size)
+
+class TextureUnits(object):
+    def _getitem__(self, i):
+        return TextureUnit(i)
+
+TextureUnits.instance = TextureUnits()
+
+class TextureUnit(object):
+    def __init__(self, idx):
+        self.idx = idx
+
+    def activate(self):
+        glActiveTexture(GL_TEXTURE0 + self.idx)
+
+    @property
+    def texture_1d(self):
+        return Texture(
+            glGetInteger(GL_TEXTURE_BINDING_1D),
+            self, GL_TEXTURE_1D,
+        )
+
+    @property
+    def texture_2d(self):
+        return Texture(
+            glGetInteger(GL_TEXTURE_BINDING_2D),
+            self, GL_TEXTURE_2D,
+        )
+
+    @property
+    def texture_3d(self):
+        return Texture(
+            glGetInteger(GL_TEXTURE_BINDING_3D),
+            self, GL_TEXTURE_3D,
+        )
+
+    @property
+    def texture_1d_array(self):
+        return Texture(
+            glGetInteger(GL_TEXTURE_BINDING_1D_ARRAY),
+            self, GL_TEXTURE_1D_ARRAY,
+        )
+
+    @property
+    def texture_2d_array(self):
+        return Texture(
+            glGetInteger(GL_TEXTURE_BINDING_2D_ARRAY),
+            self, GL_TEXTURE_2D_ARRAY,
+        )
+
+    @property
+    def texture_rectangle(self):
+        return Texture(
+            glGetInteger(GL_TEXTURE_BINDING_RECTANGLE),
+            self, GL_TEXTURE_RECTANGLE,
+        )
+
+    @property
+    def texture_2d_multisample(self):
+        return Texture(
+            glGetInteger(GL_TEXTURE_BINDING_2D_MULTISAMPLE),
+            self, GL_TEXTURE_2D_MULTISAMPLE,
+        )
+
+    @property
+    def texture_2d_multisample_array(self):
+        return Texture(
+            glGetInteger(GL_TEXTURE_BINDING_2D_MULTISAMPLE_ARRAY),
+            self, GL_TEXTURE_2D_MULTISAMPLE_ARRAY,
+        )
 
 class _GLManagedObject(object):
     gl_ctor = None
@@ -319,8 +416,7 @@ class ProgramUniform(object):
             values = values[0]
 
         if isinstance(values[0], Texture):
-            values[0].activate()
-            values = (values[0].unit,)
+            values = (values[0].activate().idx,)
 
         count = len(values)
         try:
@@ -583,10 +679,16 @@ class VertexArrayBinding(object):
         return glGetVertexAttribPointerv(self.attr.location, GL_VERTEX_ATTRIB_ARRAY_POINTER)
 
 class Texture(object):
-    def __init__(self, unit=0, target=GL_TEXTURE_2D):
+    def __init__(self, obj=None, unit=0, target=GL_TEXTURE_2D):
+        if obj is None:
+            obj = glGenTextures(1)
+
+        if isinstance(unit, int):
+            unit = TextureUnit(unit)
+
+        self.obj = obj
         self.unit = unit
         self.target = target
-        self.obj = glGenTextures(1)
 
     def free(self):
         glDeleteTextures(1, [obj])
@@ -597,8 +699,14 @@ class Texture(object):
     def activate(self, unit=None):
         if unit is None:
             unit = self.unit
-        glActiveTexture(GL_TEXTURE0 + unit)
+
+        if isinstance(unit, int):
+            unit = TextureUnit(unit)
+
+        unit.activate()
         self.bind()
+
+        return unit
 
     @property
     def min_filter(self):
@@ -662,3 +770,176 @@ class Texture(object):
             pygame.image.tostring(surf, 'RGBA', True),
             *surf.get_size(),
         )
+
+class Framebuffer(_GLManagedObject):
+    gl_ctor = glGenFramebuffers
+    gl_dtor = glDeleteFramebuffers
+    gl_bind = glBindFramebuffer
+
+    def __enter__(self):
+        self._prev_draw = Context.draw_framebuffer
+        self._prev_read = Context.read_framebuffer
+        self.bind(GL_FRAMEBUFFER)
+
+    def __exit__(self, *exc):
+        self._prev_draw.bind(GL_DRAW_FRAMEBUFFER)
+        self._prev_read.bind(GL_READ_FRAMEBUFFER)
+
+    @classproperty
+    def default(cls):
+        return cls(0)
+
+    @property
+    def attachments(self):
+        return FramebufferAttachments(self)
+
+    @property
+    def status(self):
+        with self:
+            return glCheckFramebufferStatus(GL_FRAMEBUFFER)
+
+    def blit_from(self, source, sx, sy, sw, sh, dx, dy, dw, dh, bits=GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT|GL_STENCIL_BUFFER_BIT, filter=GL_NEAREST):
+        if isinstance(source, int):
+            source = Framebuffer(source)
+
+        with self.fb:
+            source.bind(GL_READ_FRAMEBUFFER)
+            glBlitFramebuffer(sx, sy, sx+sw, sy+sh, dx, dy, dx+dw, dy+dh, bits, filter)
+
+class FramebufferAttachments(object):
+    def __init__(self, fb):
+        self.fb = fb
+
+    def __getitem__(self, i):
+        return FramebufferAttachment(self.fb, i)
+
+    @property
+    def colors(self):
+        return FramebufferColorAttachments(self)
+
+    @property
+    def depth(self):
+        return self[GL_DEPTH_ATTACHMENT]
+
+    @property
+    def stencil(self):
+        return self[GL_STENCIL_ATTACHMENT]
+
+    @property
+    def depth_stencil(self):
+        return self[GL_DEPTH_STENCIL_ATTACHMENT]
+
+class FramebufferColorAttachments(object):
+    def __init__(self, at):
+        self.at = at
+
+    def __len__(self):
+        return Context.max_color_attachments
+
+    def __getitem__(self, i):
+        if i >= len(self) or i < 0:
+            raise IndexError(i)
+        return self.at[GL_COLOR_ATTACHMENT0 + i]
+
+class FramebufferAttachment(object):
+    def __init__(self, fb, idx):
+        self.fb = fb
+        self.idx = idx
+
+    @property
+    def type(self):
+        with self.fb:
+            return glGetFramebufferAttachmentParameteriv(
+                GL_FRAMEBUFFER, self.idx,
+                GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE,
+            )[0]
+
+    @property
+    def object_name(self):
+        with self.fb:
+            return glGetFramebufferAttachmentParameteriv(
+                GL_FRAMEBUFFER, self.idx,
+                GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME,
+            )[0]
+
+    @property
+    def object(self):
+        tp = self.type
+        if tp in (GL_NONE, GL_DEFAULT_FRAMEBUFFER):
+            return None
+        else:
+            nm = self.object_name
+            if tp == GL_RENDERBUFFER:
+                return Renderbuffer(nm)
+            elif tp == GL_TEXTURE:
+                return Texture(nm)
+            else:
+                raise ValueError(tp)
+
+    def attach_texture(self, tex, level=0):
+        if isinstance(tex, int):
+            tex = Texture(tex)
+
+        with self.fb:
+            glFramebufferTexture(
+                GL_FRAMEBUFFER, self.idx,
+                tex.obj, level,
+            )
+
+    def attach_renderbuffer(self, rb):
+        if isinstance(rb, int):
+            rb = Renderbuffer(rb)
+
+        with self.fb:
+            glFramebufferRenderbuffer(
+                GL_FRAMEBUFFER, self.idx,
+                GL_RENDERBUFFER, rb.obj,
+            )
+
+    def attach(self, obj):
+        if isinstance(obj, Texture):
+            self.attach_texture(obj)
+        elif isinstance(obj, Renderbuffer):
+            self.attach_renderbuffer(obj)
+        else:
+            raise TypeError(obj)
+
+class Renderbuffer(_GLManagedObject):
+    gl_ctor = glGenRenderbuffers
+    gl_dtor = glDeleteRenderbuffers
+    gl_bind = glBindRenderbuffer
+
+    def storage(self, format, width, height, samples=0):
+        self.bind(GL_RENDERBUFFER)
+        glRenderbufferStorageMultisample(
+            GL_RENDERBUFFER, 0, format, width, height,
+        )
+        return self
+
+    @property
+    def width(self):
+        self.bind(GL_RENDERBUFFER)
+        return glGetRenderbufferParameteriv(
+            GL_RENDERBUFFER, GL_RENDERBUFFER_WIDTH,
+        )[0]
+
+    @property
+    def height(self):
+        self.bind(GL_RENDERBUFFER)
+        return glGetRenderbufferParameteriv(
+            GL_RENDERBUFFER, GL_RENDERBUFFER_HEIGHT,
+        )[0]
+
+    @property
+    def format(self):
+        self.bind(GL_RENDERBUFFER)
+        return glGetRenderbufferParameteriv(
+            GL_RENDERBUFFER, GL_RENDERBUFFER_INTERNAL_FORMAT,
+        )[0]
+
+    @property
+    def samples(self):
+        self.bind(GL_RENDERBUFFER)
+        return glGetRenderbufferParameteriv(
+            GL_RENDERBUFFER, GL_RENDERBUFFER_SAMPLES,
+        )[0]
