@@ -10,7 +10,7 @@ layout (std430, binding = 1) buffer sbSpectrum {
 
 uniform vec2 uWinSize;
 
-uniform float uFreqExp=0.5, uHueExp=1.5, uIntensityExp=2.0, uYExp=1.5;
+uniform float uFreqExp=0.5, uHueExp=1.5, uIntensityExp=2.0, uYExp=1.0;
 uniform float uTopVal=0.0, uRange=5.0;
 uniform float uMinClip=-100, uMaxClip=100;
 uniform float uLowEnd=0.03, uHighEnd=0.75;

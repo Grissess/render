@@ -4,6 +4,18 @@ import numpy as np
 from OpenGL import GL
 from OpenGL.GL import *
 
+class _MissingImport(object):
+    def __init__(self, name):
+        self.name = name
+
+    def __getattr__(self, attr):
+        raise ImportError(self.name)
+
+try:
+    import pygame
+except ImportError:
+    pygame = _MissingImport('pygame')
+
 class _OOGLConfig(object):
     AUTO_FREE = False
 
@@ -106,6 +118,32 @@ class Context(object):
     @classmethod
     def blend_func(cls, src_func, dst_func):
         glBlendFunc(src_func, dst_func)
+
+    @classproperty
+    def shader_storage(cls):
+        return ShaderStorageBindings.instance
+
+class ShaderStorageBindings(object):
+    def __getitem__(self, i):
+        return ShaderStorageBinding(i)
+
+ShaderStorageBindings.instance = ShaderStorageBindings()
+
+class ShaderStorageBinding(object):
+    def __init__(self, idx):
+        self.idx = idx
+
+    def __repr__(self):
+        return 'ShaderStorageBinding({})'.format(self.idx)
+
+    def bind(self, buf, offset=0, size=None):
+        if isinstance(buf, int):
+            buf = Buffer(buf)
+
+        if size is None:
+            size = buf.size - offset
+
+        glBindBufferRange(GL_SHADER_STORAGE_BUFFER, self.idx, buf.obj, offset, size)
 
 class _GLManagedObject(object):
     gl_ctor = None
@@ -225,10 +263,6 @@ class Program(object):
         return ProgramUniformBlocks(self)
 
     @property
-    def storage_blocks(self):
-        return ProgramShaderStorageBlocks(self)
-
-    @property
     def attributes(self):
         return ProgramAttributes(self)
 
@@ -283,6 +317,10 @@ class ProgramUniform(object):
     def set(self, *values, type=None):
         if isinstance(values[0], np.ndarray):
             values = values[0]
+
+        if isinstance(values[0], Texture):
+            values[0].activate()
+            values = (values[0].unit,)
 
         count = len(values)
         try:
@@ -384,32 +422,6 @@ class ProgramUniformBlock(object):
         return glGetActiveUniformBlockiv(self.prog.obj, self.idx,
             GL_UNIFORM_BLOCK_REFERENCED_BY_FRAGMENT_SHADER,
         )
-
-class ProgramShaderStorageBlocks(object):
-    def __init__(self, prog):
-        self.prog = prog
-
-    def __getitem__(self, i):
-        return ProgramShaderStorageBlock(self.prog, i)
-
-class ProgramShaderStorageBlock(object):
-    def __init__(self, prog, idx):
-        self.prog = prog
-        self.idx = idx
-
-    def __repr__(self):
-        return '<Shader storage block {} of {}>'.format(
-            self.idx, self.prog,
-        )
-
-    def bind(self, buf, offset=0, size=None):
-        if isinstance(buf, int):
-            buf = Buffer(buf)
-
-        if size is None:
-            size = buf.size - offset
-
-        glBindBufferRange(GL_SHADER_STORAGE_BUFFER, self.idx, buf.obj, offset, size)
 
 class ProgramAttributes(object):
     def __init__(self, prog):
@@ -594,7 +606,7 @@ class Texture(object):
         return glGetTexParameteriv(self.target, GL_TEXTURE_MIN_FILTER)
 
     @min_filter.setter
-    def _set_min_filter(self, v):
+    def min_filter(self, v):
         self.bind()
         glTexParameter(self.target, GL_TEXTURE_MIN_FILTER, v)
 
@@ -604,7 +616,7 @@ class Texture(object):
         return glGetTexParameteriv(self.target, GL_TEXTURE_MAG_FILTER)
 
     @mag_filter.setter
-    def _set_mag_filter(self, v):
+    def mag_filter(self, v):
         self.bind()
         glTexParameter(self.target, GL_TEXTURE_MAG_FILTER, v)
 
@@ -614,7 +626,7 @@ class Texture(object):
         return glGetTexParameteriv(self.target, GL_TEXTURE_WRAP_S)
 
     @wrap_s.setter
-    def _set_wrap_s(self, v):
+    def wrap_s(self, v):
         self.bind()
         glTexParameter(self.target, GL_TEXTURE_WRAP_S, v)
 
@@ -624,7 +636,7 @@ class Texture(object):
         return glGetTexParameteriv(self.target, GL_TEXTURE_WRAP_T)
 
     @wrap_t.setter
-    def _set_wrap_t(self, v):
+    def wrap_t(self, v):
         self.bind()
         glTexParameter(self.target, GL_TEXTURE_WRAP_T, v)
 
@@ -634,7 +646,19 @@ class Texture(object):
         return glGetTexParameteriv(self.target, GL_TEXTURE_WRAP_R)
 
     @wrap_r.setter
-    def _set_wrap_r(self, v):
+    def wrap_r(self, v):
         self.bind()
         glTexParameter(self.target, GL_TEXTURE_WRAP_R, v)
 
+    def image_2d(self, data, width, height, format=GL_RGBA, type=GL_UNSIGNED_BYTE, intformat=GL_RGBA8, level=0):
+        self.bind()
+        glTexImage2D(self.target, level, intformat,
+            width, height, 0, format, type, data,
+        )
+        return self
+
+    def load_surface(self, surf):
+        return self.image_2d(
+            pygame.image.tostring(surf, 'RGBA', True),
+            *surf.get_size(),
+        )

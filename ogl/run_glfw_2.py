@@ -1,8 +1,9 @@
-import sys, os, ctypes
+import sys, os, ctypes, colorsys
 sys.path.append(os.path.normpath(os.path.join(os.getcwd(), '..')))
 
 import glfw
 import numpy as np
+import pygame
 
 import procon
 from oogl import *
@@ -22,6 +23,7 @@ sig_ptr = sig_type.from_buffer(sig)
 glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 4)
 glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 3)
 glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
+glfw.window_hint(glfw.SAMPLES, 4)
 win = glfw.create_window(640, 480, "Test 2", None, None)
 if not win:
     glfw.terminate()
@@ -53,6 +55,8 @@ spectrum = Buffer().set(data_ptr, usage=GL_STREAM_DRAW)
 signal = Buffer().set(sig_ptr, usage=GL_STREAM_DRAW)
 lin = Buffer().set(np.linspace(-1.0, 1.0, SIG_SAMPLES, False, dtype=np.float32))
 
+Context.shader_storage[1].bind(spectrum)
+
 prog = Program().attach(
     Shader(GL_VERTEX_SHADER).source(
         #open('vertex/freq_scale.vs').read(),
@@ -63,8 +67,6 @@ prog = Program().attach(
     ).compile(),
 ).link()
 
-prog.storage_blocks[1].bind(spectrum)
-
 prog_bkgd = Program().attach(
     Shader(GL_VERTEX_SHADER).source(
         open('vertex/freq_scale.vs').read(),
@@ -74,8 +76,6 @@ prog_bkgd = Program().attach(
     ).compile(),
 ).link()
 
-prog_bkgd.storage_blocks[1].bind(spectrum)
-
 prog_scope = Program().attach(
     Shader(GL_VERTEX_SHADER).source(
         open('vertex/function.vs').read(),
@@ -84,6 +84,23 @@ prog_scope = Program().attach(
         open('fragment/render/solid.fs').read(),
     ).compile(),
 ).link()
+
+prog_img = Program().attach(
+    Shader(GL_VERTEX_SHADER).source(
+        open('vertex/freq_scale.vs').read(),
+    ).compile(),
+    Shader(GL_FRAGMENT_SHADER).source(
+        open('fragment/render/texture.fs').read(),
+    ).compile(),
+).link()
+
+tex_img = Texture().load_surface(
+    pygame.image.load('/home/grissess/Documents/trollface.png'),
+)
+tex_img.wrap_s = GL_REPEAT
+tex_img.wrap_t = GL_REPEAT
+tex_img.min_filter = GL_NEAREST
+tex_img.mag_filter = GL_NEAREST
 
 prog.use()
 vao = VertexArrayObject()
@@ -100,6 +117,16 @@ vao_scope = VertexArrayObject()
 vao_scope[prog_scope.attributes.vX].bind(lin)
 vao_scope[prog_scope.attributes.vY].bind(signal)
 prog_scope.uniforms.uColor.set([0.0, 1.0, 0.0, 1.0])
+
+prog_img.use()
+vao_img = VertexArrayObject()
+vao_img[prog_img.attributes.vPosition].bind(quad)
+vao_img[prog_img.attributes.vTexCoord].bind(uvs)
+prog_img.uniforms.uColor.set([1.0, 0.0, 0.0, 0.5])
+prog_img.uniforms.uMinFactor.set(0.5)
+IMG_DIVISIONS = 8
+IMG_MIN_F = 0.003
+IMG_MAX_F = 0.7
 
 while not glfw.window_should_close(win):
     glfw.make_context_current(win)
@@ -119,8 +146,25 @@ while not glfw.window_should_close(win):
     #prog_bkgd.use()
     #vao_bkgd.draw(GL_TRIANGLES)
 
+    prog_img.use()
+    prog_img.uniforms.uTex.set(tex_img)
+    for i in range(IMG_DIVISIONS):
+        prog_img.uniforms.uColor.set(
+            list(
+                colorsys.hls_to_rgb(
+                    0.66 * i, 0.5, 1,
+                ),
+            ) + [0.2],
+        )
+        prog_img.uniforms.uSampF.set(
+            IMG_MIN_F + (i / IMG_DIVISIONS) * (IMG_MAX_F - IMG_MIN_F),
+        )
+        vao_img.draw(GL_TRIANGLES)
+
+    glEnable(GL_MULTISAMPLE)
     prog_scope.use()
     vao_scope.draw(GL_LINE_STRIP)
+    glDisable(GL_MULTISAMPLE)
 
     prog.use()
     #prog.uniforms.uWinSize.set(*winsz, type='f')
